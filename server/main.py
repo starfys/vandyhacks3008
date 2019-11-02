@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+from base64 import b64decode
 from io import BytesIO
+import numpy as np
 from PIL import Image, ImageOps
 from sanic import Sanic, response
 from sanic.log import logger
@@ -18,10 +20,12 @@ app.static("/", "../static")
 async def test(request):
     logger.info("received trans request")
     # Get files from input
-    image = Image.open(BytesIO(request.files["i"][0].body))
+    logger.info(request.files)
+    decoded_file = b64decode(request.body.split(b',')[1])
+    image = Image.open(BytesIO(decoded_file))
     inverted = ImageOps.invert(image)
     out_bytes = BytesIO()
-    inverted.save(out_bytes, format='PNG')
+    inverted.save(out_bytes, format='jpeg')
     # Get the file
     return response.raw(out_bytes.getvalue())
 

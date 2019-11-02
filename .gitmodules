@@ -1,0 +1,6 @@
+[submodule "neural-style"]
+	path = neural-style
+	url = https://github.com/anishathalye/neural-style
+[submodule "server/neural-style"]
+	path = server/neural-style
+	url = https://github.com/anishathalye/neural-style
