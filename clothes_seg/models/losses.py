@@ -182,6 +182,12 @@ def tpr_weighted_dice_loss(y_true, y_pred):
 def fpr_weighted_dice_loss(y_true, y_pred):
     return false_positive_rate(y_true, y_pred) + dice_coef_loss(y_true, y_pred)
 
+def dice_loss(y_true, y_pred):
+  numerator = 2 * tf.reduce_sum(y_true * y_pred, axis=-1)
+  denominator = tf.reduce_sum(y_true + y_pred, axis=-1)
+
+  return 1-(numerator + 1) / (denominator + 1)
+
 
 def dice_coef(y_true, y_pred, smooth=1):
     y_true_f = K.flatten(y_true)
