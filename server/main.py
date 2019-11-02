@@ -12,7 +12,7 @@ app.static("/", "../static")
 
 @app.route('/upload')
 async def test(request):
-    return json({'hello': 'world'})
+    return json({'owo': 'world'})
 
 
 if __name__ == '__main__':
