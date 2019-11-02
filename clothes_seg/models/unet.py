@@ -63,11 +63,10 @@ def unet(model_path,
     conv9 = Conv2D(2, 3, activation='relu', padding='same', )(conv9)
     conv10 = Conv2D(1, 1, activation='sigmoid')(conv9)
 
-    model = Model(input=inputs, output=conv10)
+    model = Model(inputs=inputs, outputs=conv10)
 
     # dice as a human-readble metric
     model.compile(optimizer=Adam(lr=lr),
-                  metrics=[dice_coef],
                   loss=loss)
 
     # save json before checking if multi-gpu

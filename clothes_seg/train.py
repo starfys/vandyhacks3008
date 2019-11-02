@@ -2,9 +2,18 @@ import numpy as np
 import os
 import sys
 import json
+from pathlib import Path
+import matplotlib.pyplot as plt
+from matplotlib.path import Path as Tracer
 
 import tensorflow as tf
+from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 from tqdm import tqdm
+from utils.pad import *
+from utils import preprocess
+from utils.tfrecord_utils import *
+from utils.patch_ops import *
+from models.losses import *
 
 from utils.augmentations import *
 from utils.tfrecord_utils import *
@@ -30,7 +39,7 @@ if __name__ == "__main__":
     N_EPOCHS = 10000
     BATCH_SIZE = 128
     BUFFER_SIZE = BATCH_SIZE * 2
-    ds = 2
+    ds = 8
     instance_size = (1024, 1024)
     learning_rate = 1e-4
     progbar_length = 10
@@ -61,14 +70,14 @@ if __name__ == "__main__":
     model = unet(
         MODEL_PATH,
         3,
+        loss=dice_coef_loss,
         ds=ds,
         lr=learning_rate,
         num_gpus=1,
         verbose=1,
     )
 
-    
-
+ 
     ######### DATA IMPORT #########
     augmentations = [flip_dim1, flip_dim2, rotate_2D]
 
@@ -109,75 +118,72 @@ if __name__ == "__main__":
             mask = pth.contains_points(xypix)
             mask = mask.reshape(dims)
 
-            xs.append(pad_crop_image_2D(x, TARGET_DIMS).astype(np.uint8))
-            ys.append(pad_crop_image_2D(mask, TARGET_DIMS).astype(np.uint8))
+            xs.append(pad_crop_image_2D(x.astype(np.float32)/255., TARGET_DIMS))
+            ys.append(pad_crop_image_2D(mask.astype(np.float32)/255., TARGET_DIMS))
 
-        xs - np.array(xs)
+        xs = np.array(xs)
         ys = np.array(ys)
 
         return xs, ys
-        
-    NUM_TOTAL = 2000
+
+    ##### CALLBACKS #####
+    callbacks_list = []
+
+    # Checkpoint
+    WEIGHT_NAME = MODEL_NAME.replace("model","weights") + ".hdf5"
+    fpath = os.path.join(WEIGHT_DIR, WEIGHT_NAME)
+    checkpoint = ModelCheckpoint(fpath,
+                                 verbose=0,
+                                 save_best_only=False,
+                                 mode='auto',
+                                 save_weights_only=True)
+    callbacks_list.append(checkpoint)
+
+
+    # Early Stopping, used to quantify convergence
+    # convergence is defined as no improvement by 1e-4 for 10 consecutive epochs
+    #es = EarlyStopping(monitor='loss', min_delta=0, patience=10)
+    #es = EarlyStopping(monitor='loss', min_delta=1e-8, patience=10)
+    # The code continues even if the validation/training accuracy reaches 1, but loss is not.
+    # For a classification task, accuracy is more important. For a regression task, loss
+    # is important
+    es = EarlyStopping(monitor='val_loss', min_delta=1e-8, patience=20)
+    callbacks_list.append(es)
+
+
+    ##### LOAD DATA #####
+    NUM_TOTAL = 2
+
+    # get all filenames
+    all_filenames = list([x for x in IMG_DIR.iterdir()])
+    all_masknames = list([x for x in SEG_DIR.iterdir()])
     
     # train
-    image_tensor = np.zeros(NUM_TOTAL, *TARGET_DIMS, 3)
-    mask_tensor = np.zeros(NUM_TOTAL, *TARGET_DIMS, 1)
+    image_tensor = np.zeros((NUM_TOTAL, *TARGET_DIMS, 3), dtype=np.float32)
+    mask_tensor = np.zeros((NUM_TOTAL, *TARGET_DIMS), dtype=np.float32)
     i = 0
-    for img_filename, seg_filename in tqdm(zip(IMG_DIR.iterdir(), SEG_DIR.iterdir()), total=NUM_TOTAL):
+    for img_filename, seg_filename in tqdm(zip(all_filenames[:NUM_TOTAL], all_masknames[:NUM_TOTAL]), total=NUM_TOTAL):
         xs, ys = prepare_data(img_filename, seg_filename)
         for x, y in zip(xs, ys):
-            plt.imshow(x)
-            plt.imshow(y, alpha=0.6)
-            plt.show()
             image_tensor[i] = x
             mask_tensor[i] = y
             i += 1
-            if i > NUM_TOTAL:
+            if i >= NUM_TOTAL:
                 break
-
-    train_dataset = tf.data.Dataset.from_tensor_slices(
-            (image_tensor, mask_tensor))
-            
-    # val
-    NUM_VAL = 500
-    image_tensor_val = np.zeros(NUM_TOTAL, *TARGET_DIMS, 3)
-    mask_tensor_val = np.zeros(NUM_TOTAL, *TARGET_DIMS, 1)
-    i = 0
-    for img_filename, seg_filename in tqdm(zip(IMG_DIR.iterdir().skip(NUM_TOTAL), 
-                                        SEG_DIR.iterdir().skip(NUM_TOTAL)), total=NUM_VAL):
-        xs, ys = prepare_data(img_filename, seg_filename)
-        for x, y in zip(xs, ys):
-            plt.imshow(x)
-            plt.imshow(y, alpha=0.6)
-            plt.show()
-            image_tensor_val[i] = x
-            mask_tensor_val[i] = y
-            i += 1
-            if i > NUM_VAL:
-                break
-
-    train_dataset = tf.data.Dataset.from_tensor_slices(
-            (image_tensor, mask_tensor))
-            
-    val_dataset = tf.data.Dataset.from_tensor_slices(
-            (image_tensor_val, mask_tensor_val))
+        if i >= NUM_TOTAL:
+            break
 
 
-    '''
-    for f in augmentations:
-        train_dataset = train_dataset.map(
-                lambda x, y: 
-                tf.cond(tf.random.uniform([], 0, 1) > 0.9, 
-                    lambda: (f(x), y),
-                    lambda: (x, y)
-                ), num_parallel_calls=4,)
-    '''
+    mask_tensor = np.reshape(mask_tensor, mask_tensor.shape + (1,))
     
+
     history = model.fit(
-        train_dataset,
-        batch_size=64,
-        epochs=3,
-        validation_data=val_dataset
+        image_tensor, mask_tensor,
+        validation_split=0.2,
+        epochs=1000000,
+        batch_size=1,
+        callbacks=callbacks_list,
+        verbose=1,
     )
 
   

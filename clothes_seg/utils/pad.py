@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 def pad_image(img_data, target_dims=None):
     '''
@@ -67,9 +68,6 @@ def center_crop(img, target_dims):
 
     left = int(np.ceil((width - new_width) / 2))
     right = width - int(np.floor((width - new_width) / 2))
-    
-    left = min(0, np.abs(left))
-    right = max(np.abs(right), np.abs(width))
 
     top = int(np.ceil((height - new_height) / 2))
     bottom = height - int(np.floor((height - new_height) / 2))
@@ -78,6 +76,7 @@ def center_crop(img, target_dims):
         center_cropped_img = img[top:bottom, left:right, :]
     else:
         center_cropped_img = img[top:bottom, left:right]
+
 
     return center_cropped_img
 
@@ -94,6 +93,7 @@ def pad_crop_image_2D(img_data, target_dims=None):
         (left_pad, right_pad),
         (top_pad, bottom_pad),
     )
+    
 
     if len(img_data.shape) == 3:
         new_img = np.moveaxis(
@@ -108,4 +108,5 @@ def pad_crop_image_2D(img_data, target_dims=None):
         new_img = np.zeros((target_dims))
         new_img[:,:] = np.pad(img_data[:,:], pads, 'constant', constant_values=0)
         
+
     return new_img
