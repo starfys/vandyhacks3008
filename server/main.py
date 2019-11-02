@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
-from PIL import Image
+from io import BytesIO
+from PIL import Image, ImageOps
 from sanic import Sanic, response
+from sanic.log import logger
 
 # ======================
 # Define the app
@@ -12,10 +14,16 @@ app = Sanic()
 app.static("/", "../static")
 
 
-@app.route('/transform')
+@app.route('/transform', methods=["POST"])
 async def test(request):
-    print("received trans request")
-    return await response.file('../static/uwuwu.jpg')
+    logger.info("received trans request")
+    # Get files from input
+    image = Image.open(BytesIO(request.files["i"][0].body))
+    inverted = ImageOps.invert(image)
+    out_bytes = BytesIO()
+    inverted.save(out_bytes, format='PNG')
+    # Get the file
+    return response.raw(out_bytes.getvalue())
 
 
 # ============================
