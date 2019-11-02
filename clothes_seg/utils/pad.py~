@@ -101,7 +101,7 @@ def pad_crop_image_2D(img_data, target_dims=None):
             [np.pad(img_data[:, :, c], 
                     pads, 
                     'constant', 
-                    constant_values=(0,0)) for c in range(img_data.shape[2])]),
+                    constant_values=(0,)) for c in range(img_data.shape[2])]),
             0, 2)
 
     else:

@@ -1,13 +1,6 @@
-from keras.losses import binary_crossentropy
-from keras import backend as K
-from keras.backend.common import epsilon
+from tensorflow.keras.losses import binary_crossentropy
+from tensorflow.keras import backend as K
 import tensorflow as tf
-from tensorflow.python.ops import array_ops
-from tensorflow.python.framework import ops
-from tensorflow.python.framework import dtypes 
-from tensorflow.python.framework import tensor_shape 
-from tensorflow.python.ops import nn_ops 
-from tensorflow.python.ops import math_ops 
 
 
 """

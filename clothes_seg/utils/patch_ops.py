@@ -112,7 +112,7 @@ def get_patches(invols, mask, patchsize, maxpatch, num_channels):
 
     mask = np.asarray(mask, dtype=np.float32)
     patch_size = np.asarray(patchsize, dtype=int)
-    dsize = np.floor(patchsize/2).astype(dtype=int)
+    dsize = np.floor(patch_size/2).astype(dtype=int)
 
     # find indices of all lesions in mask volume
     mask_lesion_indices = np.nonzero(mask)
@@ -163,41 +163,73 @@ def get_patches(invols, mask, patchsize, maxpatch, num_channels):
     CT_matsize = (2*num_patches, patchsize[0], patchsize[1], num_channels)
     Mask_matsize = (2*num_patches, patchsize[0], patchsize[1], 1)
 
-    CTPatches = np.ndarray(CT_matsize, dtype=np.float16)
-    MaskPatches = np.ndarray(Mask_matsize, dtype=np.float16)
+    #CTPatches = np.ndarray(CT_matsize, dtype=np.float16)
+    #MaskPatches = np.ndarray(Mask_matsize, dtype=np.float16)
+
+    CTPatches = []
+    MaskPatches = []
 
     for i in range(0, 2*num_patches):
         I = newidx[0, i]
         J = newidx[1, i]
         K = newidx[2, i]
-        
+
+        if I - dsize[0] < 0 or\
+                I + dsize[0] > invols[0].shape[0] or\
+                J - dsize[1] < 0 or\
+                J + dsize[1] > invols[0].shape[1]:
+                    continue
+
+        if np.sum(
+            invols[0][I - dsize[0]: I + dsize[0],
+                      J - dsize[1]: J + dsize[1],
+                      K]
+                ) == 0:
+            continue
 
         for c in range(num_channels):
-            '''
-            CTPatches[i, :, :, c] = invols[c][I - dsize[0]: I + dsize[0] + 1,
-                                              J - dsize[1]: J + dsize[1] + 1,
-                                              K]
-            '''
-
-            # trying even-sided patches
-            CTPatches[i, :, :, c] = invols[c][I - dsize[0]: I + dsize[0],
+            CTPatches.append(invols[c][I - dsize[0]: I + dsize[0],
                                               J - dsize[1]: J + dsize[1],
-                                              K]
-
-        '''
-        MaskPatches[i, :, :, 0] = mask[I - dsize[0]: I + dsize[0] + 1,
-                                       J - dsize[1]:J + dsize[1] + 1,
-                                       K]
-        '''
-        # trying even-sided patches
-        MaskPatches[i, :, :, 0] = mask[I - dsize[0]: I + dsize[0],
+                                              K])
+        MaskPatches.append(mask[I - dsize[0]: I + dsize[0],
                                        J - dsize[1]:J + dsize[1],
-                                       K]
+                                       K])
 
-    CTPatches = np.asarray(CTPatches, dtype=np.float16)
-    MaskPatches = np.asarray(MaskPatches, dtype=np.float16)
+    #CTPatches = np.asarray(CTPatches, dtype=np.float16)
+    #MaskPatches = np.asarray(MaskPatches, dtype=np.float16)
 
     return CTPatches, MaskPatches
+
+
+def get_nonoverlapping_patches(img_vol, patch_size):
+    '''
+    Gets all 2D non-overlapping, non-zero patches of `patchsize` from `img`
+    '''
+    num_x_steps = img_vol.shape[0] // patch_size[0]
+    num_y_steps = img_vol.shape[1] // patch_size[1]
+    num_z_steps = img_vol.shape[2]
+
+    patches = []
+    for z in range(num_z_steps):
+        for x in range(0, img_vol.shape[0] - patch_size[0] + 1, patch_size[0]):
+            for y in range(0, img_vol.shape[1] - patch_size[1] + 1, patch_size[1]):
+                patch = img_vol[
+                    x:x+patch_size[0],
+                    y:y+patch_size[1],
+                    z
+                ]
+
+                if np.sum(patch) > 0:
+                    patches.append(patch)
+
+    patches = np.array(patches)
+    if len(patches.shape) != 3:
+        return np.zeros((1, *patch_size))
+    patches = np.rollaxis(patches, 2, -1)
+    patches = np.reshape(patches, patches.shape + (1,))
+
+
+    return patches
 
 
 def CreatePatchesForTraining(atlasdir, plane, patchsize, max_patch=150000, num_channels=1):
@@ -222,7 +254,7 @@ def CreatePatchesForTraining(atlasdir, plane, patchsize, max_patch=150000, num_c
     numatlas = len(ct_names)
 
     patchsize = np.asarray(patchsize, dtype=int)
-    padsize = np.max(patchsize + 1)# / 2
+    padsize = np.max(patchsize + 1)  # / 2
 
     # calculate total number of voxels for all images to pre-allocate array
     f = 0
@@ -252,7 +284,6 @@ def CreatePatchesForTraining(atlasdir, plane, patchsize, max_patch=150000, num_c
         CT_matsize = (doubled_num_patches,
                       16, patchsize[1], num_channels)
         Mask_matsize = (doubled_num_patches, 16, patchsize[1], 1)
-
 
     CTPatches = np.zeros(CT_matsize, dtype=np.float16)
     MaskPatches = np.zeros(Mask_matsize, dtype=np.float16)

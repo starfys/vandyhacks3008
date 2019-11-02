@@ -1,16 +1,12 @@
-from keras.layers import Input, Conv2D, MaxPooling2D, AveragePooling2D, concatenate,\
-    GlobalAveragePooling2D, add, UpSampling2D
-from keras.layers.merge import Concatenate
-from keras.layers.core import Activation, Dropout
-from keras.layers.normalization import BatchNormalization
-from keras.optimizers import Adam
-from keras.models import Model
-from keras import backend as K
 import tensorflow as tf
+
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, AveragePooling2D, concatenate,\
+    GlobalAveragePooling2D, add, UpSampling2D, Concatenate, Activation, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.models import Model
 
 from .losses import *
 
-from .multi_gpu import ModelMGPU
 import json
 
 
@@ -81,12 +77,5 @@ def unet(model_path,
 
     if verbose:
         print(model.summary())
-
-    # recompile if multi-gpu model
-    if num_gpus > 1:
-        model = ModelMGPU(model, num_gpus)
-        model.compile(optimizer=Adam(lr=lr),
-                      metrics=[dice_coef],
-                      loss=loss)
 
     return model

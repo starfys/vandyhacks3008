@@ -4,12 +4,11 @@ import sys
 import json
 
 import tensorflow as tf
-import tensorflow_probability as tfp
 from tqdm import tqdm
 
 from utils.augmentations import *
 from utils.tfrecord_utils import *
-from models.phinet import *
+from models.unet import *
 
 def running_average(old_average, cur_val, n):
     return old_average * (n-1)/n + cur_val/n
@@ -32,7 +31,7 @@ if __name__ == "__main__":
     BATCH_SIZE = 128
     BUFFER_SIZE = BATCH_SIZE * 2
     ds = 2
-    instance_size = (256, 256)
+    instance_size = (1024, 1024)
     learning_rate = 1e-4
     progbar_length = 10
     CONVERGENCE_EPOCH_LIMIT = 10
@@ -40,15 +39,15 @@ if __name__ == "__main__":
 
     ########## DIRECTORY SETUP ##########
 
-    MODEL_NAME = "phinet"
+    MODEL_NAME = "unet"
     WEIGHT_DIR = os.path.join(
-            "models", 
-            "weights", 
-            MODEL_NAME, 
+        "models", 
+        "weights", 
+        MODEL_NAME, 
     )
 
     RESULTS_DIR = os.path.join(
-            "results",
+        "results",
     )            
 
     # files and paths
@@ -58,53 +57,111 @@ if __name__ == "__main__":
 
     MODEL_PATH = os.path.join(WEIGHT_DIR, MODEL_NAME + ".json")
     HISTORY_PATH = os.path.join(WEIGHT_DIR, MODEL_NAME + "_history.json")
-
-    with strategy.scope():
-        # Actual instantiation happens for each fold
-        model = phinet(num_classes=num_classes, ds=ds)
-        #model = resnet(num_classes=num_classes, ds=ds)
     
-    INIT_WEIGHT_PATH = os.path.join(WEIGHT_DIR, "init_weights.h5")
-    model.save_weights(INIT_WEIGHT_PATH)
-    json_string = model.to_json()
-    with open(MODEL_PATH, 'w') as f:
-        json.dump(json_string, f)
-
-    print(model.summary(line_length=75))
-
-
-    ######### FIVE FOLD CROSS VALIDATION #########
-
-    TRAIN_TF_RECORD_FILENAME = os.path.join(
-            "data", "tfrecord_dir", "dataset_fold_{}_train.tfrecord"
-    )
-    VAL_TF_RECORD_FILENAME = os.path.join(
-            "data", "tfrecord_dir", "dataset_fold_{}_val.tfrecord"
+    model = unet(
+        MODEL_PATH,
+        3,
+        ds=ds,
+        lr=learning_rate,
+        num_gpus=1,
+        verbose=1,
     )
 
-    ######### MODEL AND CALLBACKS #########
-    with strategy.scope():
-        model.load_weights(INIT_WEIGHT_PATH)
-        opt = tf.optimizers.Adam(learning_rate=learning_rate)
+    
 
     ######### DATA IMPORT #########
     augmentations = [flip_dim1, flip_dim2, rotate_2D]
 
-    train_dataset = tf.data.TFRecordDataset(
-            TRAIN_TF_RECORD_FILENAME.format(cur_fold))\
-        .map(lambda record: parse_into_slice(
-            record,
-            instance_size,
-            num_labels=num_classes))\
-        .shuffle(BUFFER_SIZE)\
-        .batch(BATCH_SIZE_PER_REPLICA)\
+    DATA_DIR = Path("D:/data/deepfashion/validation/validation")
+    IMG_DIR = DATA_DIR / "image"
+    SEG_DIR = DATA_DIR / "annos"
+    
+    TARGET_DIMS = (1024, 1024)
 
-    val_dataset = tf.data.TFRecordDataset(
-            VAL_TF_RECORD_FILENAME.format(cur_fold))\
-        .map(lambda record: parse_into_volume(
-            record,
-            instance_size,
-            num_labels=num_classes))\
+    def prepare_data(x_filename, y_filename):
+        xs = []
+        ys = []
+
+        x = plt.imread(str(x_filename))
+        with open(str(y_filename), 'r') as f:
+            json_data = json.load(f)
+        
+        item_keys = [x for x in json_data.keys() if "item" in x]
+        num_items = len(item_keys)
+
+        dims = x.shape[:2]
+
+        for k in item_keys:
+            vertices = json_data[k]["segmentation"][0]
+            xc, yc = [], []
+            for xpt, ypt in zip(vertices[::2], vertices[1::2]):
+                xc.append(xpt)
+                yc.append(ypt)
+            xc = np.array(xc)
+            yc = np.array(yc)
+
+            xycrop = np.vstack((xc, yc)).T
+            nr, nc = dims
+            ygrid, xgrid = np.mgrid[:nr, :nc]
+            xypix = np.vstack((xgrid.ravel(), ygrid.ravel())).T
+
+            pth = Tracer(xycrop, closed=False)
+            mask = pth.contains_points(xypix)
+            mask = mask.reshape(dims)
+
+            xs.append(pad_crop_image_2D(x, TARGET_DIMS).astype(np.uint8))
+            ys.append(pad_crop_image_2D(mask, TARGET_DIMS).astype(np.uint8))
+
+        xs - np.array(xs)
+        ys = np.array(ys)
+
+        return xs, ys
+        
+    NUM_TOTAL = 2000
+    
+    # train
+    image_tensor = np.zeros(NUM_TOTAL, *TARGET_DIMS, 3)
+    mask_tensor = np.zeros(NUM_TOTAL, *TARGET_DIMS, 1)
+    i = 0
+    for img_filename, seg_filename in tqdm(zip(IMG_DIR.iterdir(), SEG_DIR.iterdir()), total=NUM_TOTAL):
+        xs, ys = prepare_data(img_filename, seg_filename)
+        for x, y in zip(xs, ys):
+            plt.imshow(x)
+            plt.imshow(y, alpha=0.6)
+            plt.show()
+            image_tensor[i] = x
+            mask_tensor[i] = y
+            i += 1
+            if i > NUM_TOTAL:
+                break
+
+    train_dataset = tf.data.Dataset.from_tensor_slices(
+            (image_tensor, mask_tensor))
+            
+    # val
+    NUM_VAL = 500
+    image_tensor_val = np.zeros(NUM_TOTAL, *TARGET_DIMS, 3)
+    mask_tensor_val = np.zeros(NUM_TOTAL, *TARGET_DIMS, 1)
+    i = 0
+    for img_filename, seg_filename in tqdm(zip(IMG_DIR.iterdir().skip(NUM_TOTAL), 
+                                        SEG_DIR.iterdir().skip(NUM_TOTAL)), total=NUM_VAL):
+        xs, ys = prepare_data(img_filename, seg_filename)
+        for x, y in zip(xs, ys):
+            plt.imshow(x)
+            plt.imshow(y, alpha=0.6)
+            plt.show()
+            image_tensor_val[i] = x
+            mask_tensor_val[i] = y
+            i += 1
+            if i > NUM_VAL:
+                break
+
+    train_dataset = tf.data.Dataset.from_tensor_slices(
+            (image_tensor, mask_tensor))
+            
+    val_dataset = tf.data.Dataset.from_tensor_slices(
+            (image_tensor_val, mask_tensor_val))
+
 
     '''
     for f in augmentations:
@@ -115,159 +172,12 @@ if __name__ == "__main__":
                     lambda: (x, y)
                 ), num_parallel_calls=4,)
     '''
+    
+    history = model.fit(
+        train_dataset,
+        batch_size=64,
+        epochs=3,
+        validation_data=val_dataset
+    )
 
-    num_elements = 100
-
-
-        # metrics
-    train_accuracy = tf.keras.metrics.CategoricalAccuracy(name='train_acc')
-    val_accuracy = tf.keras.metrics.CategoricalAccuracy(name='val_acc')
-    val_loss = tf.keras.metrics.Mean(name='val_loss')
-
-    # step
-    def train_step(inputs):
-        x, y = inputs
-        
-        with tf.GradientTape() as tape:
-            logits = model(x, training=True)
-            loss = tf.nn.compute_average_loss(
-                tf.nn.softmax_cross_entropy_with_logits(
-                    labels=y,
-                    logits=logits,
-                    #reduction=tf.losses.Reduction.NONE,
-                ),
-                global_batch_size=GLOBAL_BATCH_SIZE,
-            )
-
-        grads = tape.gradient(loss, model.trainable_variables)
-        opt.apply_gradients(zip(grads, model.trainable_variables))
-
-        train_accuracy.update_state(y, tf.nn.softmax(logits))
-        return loss
-
-    def val_step(inputs):
-        x, y = inputs
-
-        logits = tf.map_fn(
-            lambda cur_slice: model(
-                tf.reshape(
-                    cur_slice, 
-                    (1,) + tuple(cur_slice.shape.as_list())
-                ), 
-                training=False
-            ),
-            x,
-        )
-
-        losses = tf.nn.softmax_cross_entropy_with_logits(
-            labels=y,
-            logits=logits,
-        )
-
-        # Aggregation of scores
-        # For now, just take maximum class
-        pred = tf.reduce_sum(
-            tf.nn.softmax(logits),
-            axis=0,
-        )
-
-        val_accuracy.update_state(y, pred)
-        val_loss.update_state(tf.reduce_sum(losses))
-
-
-    ######### TRAINING #########
-
-    train_loss = 0
-
-    best_val_loss = 100000
-    best_val_acc = 0
-    convergence_epoch_counter = 0
-
-    print()
-
-    TEMPLATE = "\rEpoch {}/{} [{:{}<{}}] Loss: {:>3.4f} Acc: {:>3.2%}"
-
-    sys.stdout.write(TEMPLATE.format(
-        1, 
-        N_EPOCHS, 
-        "=" * 0, 
-        '-', 
-        progbar_length,
-        0.0,
-        0.0,
-    ))
-
-    best_epoch = 1
-    with strategy.scope():
-        for cur_epoch in range(N_EPOCHS):
-
-            num_batches = 0
-            for i, data in enumerate(train_dist_dataset):
-                train_loss += distributed_train_step(data)
-                num_batches += 1
-
-                cur_step = BATCH_SIZE_PER_REPLICA * (i + 1)
-
-                sys.stdout.write(TEMPLATE.format(
-                    cur_epoch + 1, N_EPOCHS,
-                    "=" * min(int(progbar_length*(cur_step/num_elements)), 
-                              progbar_length),
-                    "-",
-                    progbar_length,
-                    train_loss/num_batches,
-                    train_accuracy.result(),
-                ))
-                sys.stdout.flush()
-
-            train_loss /= num_batches
-
-            # validation metrics
-            num_val_elements = 0
-            for i, data in enumerate(val_dataset):
-                distributed_val_step(data)
-
-            with open(TRAIN_CURVE_FILENAME.format(cur_fold), 'a') as f:
-                f.write("{},{:.4f},{:.4f},{:.4f},{:.4f}\n".format(
-                    cur_epoch + 1,
-                    train_loss,
-                    train_accuracy.result(),
-                    val_loss.result(),
-                    val_accuracy.result(),
-                ))
-
-
-            if convergence_epoch_counter >= CONVERGENCE_EPOCH_LIMIT:
-                print("\nCurrent Fold: {}\
-                        \nNo improvement in {} epochs, model is converged.\
-                        \nModel achieved best val loss at epoch {}.\
-                        \nTrain Loss: {:.4f} Train Acc: {:.2%}\
-                        \nVal   Loss: {:.4f} Val   Acc: {:.2%}".format(
-                    cur_fold,
-                    CONVERGENCE_EPOCH_LIMIT,
-                    best_epoch,
-                    train_loss, 
-                    train_accuracy.result(),
-                    val_loss.result(), 
-                    val_accuracy.result(),
-                ))
-                break
-
-            if val_loss.result() > best_val_loss and\
-                    np.abs(val_loss.result() - best_val_loss) > epsilon:
-                convergence_epoch_counter += 1
-            else:
-                convergence_epoch_counter = 0
-
-            if val_loss.result() < best_val_loss:
-                best_epoch = cur_epoch + 1
-                best_val_loss = val_loss.result() 
-                best_val_acc = val_accuracy.result()
-                model.save_weights(os.path.join(
-                    WEIGHT_DIR, "best_weights_fold_{}.h5".format(cur_fold))
-                )
-
-            sys.stdout.write(" Val Loss: {:.4f} Val Acc: {:.2%}".format(
-                val_loss.result(),
-                val_accuracy.result(), 
-            ))
-
+  
