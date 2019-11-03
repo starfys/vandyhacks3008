@@ -24,7 +24,10 @@ class CelebA(data.Dataset):
             self.num_images = len(self.train_dataset)
         else:
             self.num_images = len(self.test_dataset)
-
+            
+    def set_im(self, t):
+        self.numpy_tensor = t
+        
     def preprocess(self):
         lines = [line.rstrip() for line in open(self.attr_path, 'r')]
         all_attr_names = lines[1].split()
@@ -58,7 +61,7 @@ class CelebA(data.Dataset):
         filename, label = dataset[index]
         #image = Image.open(os.path.join(self.image_dir, filename))
         image = self.numpy_tensor
-        return self.transform(image), torch.FloatTensor(label)
+        return self.transform(image.resize((256,256))), torch.FloatTensor(label)
 
     def __len__(self):
         """Return the number of images."""

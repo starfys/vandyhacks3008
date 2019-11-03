@@ -4,12 +4,13 @@ from solver import Solver
 from data_loader import get_loader
 from torch.backends import cudnn
 import matplotlib.pyplot as plt
+from PIL import Image
 
 
 def str2bool(v):
     return v.lower() in ('true')
 
-def main(config):
+def forward_pass(config, solver, numpy_tensor):
     # For fast training.
     cudnn.benchmark = True
 
@@ -22,9 +23,6 @@ def main(config):
         os.makedirs(config.sample_dir)
     if not os.path.exists(config.result_dir):
         os.makedirs(config.result_dir)
-
-
-    numpy_tensor = plt.imread("me.jpg")
 
     # Data loader.
     celeba_loader = None
@@ -41,7 +39,6 @@ def main(config):
     
 
     # Solver for training and testing StarGAN.
-    solver = Solver(celeba_loader, rafd_loader, config)
 
     if config.mode == 'train':
         if config.dataset in ['CelebA', 'RaFD']:

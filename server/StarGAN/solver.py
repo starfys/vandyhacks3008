@@ -1,7 +1,8 @@
-from model import Generator
-from model import Discriminator
+from .model import Generator
+from .model import Discriminator
 from torch.autograd import Variable
-from torchvision.utils import save_image
+from torchvision.utils import make_grid
+from PIL import Image
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -63,11 +64,14 @@ class Solver(object):
         self.sample_step = config.sample_step
         self.model_save_step = config.model_save_step
         self.lr_update_step = config.lr_update_step
-
+        self.celeba_crop_size = config.celeba_crop_size
+        self.image_size = config.image_size
         # Build the model and tensorboard.
         self.build_model()
         if self.use_tensorboard:
             self.build_tensorboard()
+        # Load the trained generator.
+        self.restore_model(self.test_iters)
 
     def build_model(self):
         """Create a generator and a discriminator."""
@@ -520,10 +524,9 @@ class Solver(object):
                 self.update_lr(g_lr, d_lr)
                 print ('Decayed learning rates, g_lr: {}, d_lr: {}.'.format(g_lr, d_lr))
 
-    def test(self):
+    def test(self, image):
         """Translate images using StarGAN trained on a single dataset."""
-        # Load the trained generator.
-        self.restore_model(self.test_iters)
+        
         
         # Set data loader.
         if self.dataset == 'CelebA':
@@ -532,22 +535,37 @@ class Solver(object):
             data_loader = self.rafd_loader
         
         with torch.no_grad():
-            for i, (x_real, c_org) in enumerate(data_loader):
-
+            #for i, (x_real, c_org) in enumerate(data_loader):
+            c_org = torch.FloatTensor(np.array([[1,0,0,1,1]]))# TODO: random this
+            from torchvision import transforms as T
+            transform = []
+            #transform.append(T.CenterCrop(self.celeba_crop_size))
+            transform.append(T.Resize(self.image_size))
+            transform.append(T.ToTensor())
+            transform.append(T.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
+            transform = T.Compose(transform)
+            for i, (x_real, c_org) in enumerate([(image, c_org)]):
+                x_real = transform(x_real)
+                x_real = torch.unsqueeze(x_real, 0)
                 # Prepare input images and target domain labels.
                 x_real = x_real.to(self.device)
                 c_trg_list = self.create_labels(c_org, self.c_dim, self.dataset, self.selected_attrs)
 
                 # Translate images.
-                x_fake_list = [x_real]
-                for c_trg in c_trg_list:
+                x_fake_list = []
+                for c_trg in c_trg_list[3:4]:
                     x_fake_list.append(self.G(x_real, c_trg))
 
                 # Save the translated images.
                 x_concat = torch.cat(x_fake_list, dim=3)
                 result_path = os.path.join(self.result_dir, '{}-images.jpg'.format(i+1))
-                save_image(self.denorm(x_concat.data.cpu()), result_path, nrow=1, padding=0)
-                print('Saved real and fake images into {}...'.format(result_path))
+                
+                my_out_image = self.denorm(x_concat.data.cpu())
+                grid = make_grid(my_out_image, nrow=1, padding=0, pad_value=0,
+                     normalize=False, range=None, scale_each=False)
+                ndarr = grid.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+                return Image.fromarray(ndarr)
+                
 
     def test_multi(self):
         """Translate images using StarGAN trained on multiple datasets."""
