@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from base64 import b64decode
+import cv2
 from io import BytesIO
 import numpy as np
 import argparse
@@ -74,7 +75,9 @@ def makeconfig():
     parser.add_argument('--model_save_step', type=int, default=10000)
     parser.add_argument('--lr_update_step', type=int, default=1000)
 
-    config = parser.parse_args("--mode test --dataset CelebA --image_size 256 --c_dim 5 --selected_attrs Black_Hair Blond_Hair Brown_Hair Male Young --model_save_dir=StarGAN\\stargan_celeba_256\\models --result_dir StarGAN\\stargan_celeba_256\\results --use_tensorboard False".split())
+    config = parser.parse_args(
+        "--mode test --dataset CelebA --image_size 256 --c_dim 5 --selected_attrs Black_Hair Blond_Hair Brown_Hair Male Young --model_save_dir=StarGAN\\stargan_celeba_256\\models --result_dir StarGAN\\stargan_celeba_256\\results --use_tensorboard False".split()
+    )
 
     return config
     
@@ -85,22 +88,49 @@ celeba_loader = get_loader(config.celeba_image_dir, config.attr_path, config.sel
                                    'CelebA', config.mode, config.num_workers, Image.open("StarGAN\\me.jpg"))
 solver = Solver(celeba_loader, rafd_loader=None, config=config)
 
+face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+
+import numpy as np
+
+
+mask = cv2.imread('mask.png')
 @app.route('/transform', methods=["POST"])
-async def test(request):
+async def transform(request):
     # Get files from input
     decoded_file = b64decode(request.body.split(b',')[1])
+    feature_id = int(request.headers.get("Target", "0"))
     image = Image.open(BytesIO(decoded_file))
-    
-    try:
-        new_image = solver.test(image)
-    except KeyboardInterrupt:
-        sys.exit()
-    except:
-        sys.exit()
-
+    gray = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    new_image = image.convert("RGBA")
+    changed = False
+    for (x, y, w, h) in faces:
+        if w * h > (100*100):
+            top = int(0.4 * h)
+            bottom = int(0.3 * h)
+            left = int(0.2 * w)
+            right = int(0.2 * w)
+            x1 = max(0, x-left)
+            y1 = max(0, y-top)
+            x2 = min(image.width, x+w+right)
+            y2 = min(image.height, y+h+bottom)
+            try:
+                face = image.crop((x1,y1,x2,y2)).resize((256,256), Image.LANCZOS)
+                #face = np.array(face)
+                #face = cv2.blur(face,(5,5))
+                #face = Image.fromarray(face)
+                #new_image = face
+                modded_face = solver.test(face, feature_id).resize((x2-x1,y2-y1), Image.LANCZOS).convert("RGBA")
+                #smask = mask.resize((x2-x1,y2-y1))
+                new_image.paste(modded_face, (x1, y1))
+                changed = True
+            except KeyboardInterrupt:
+                sys.exit()
+            #except Exception as e:
+                #logger.error(e)
     out_bytes = BytesIO()
-    new_image.save(out_bytes, format='jpeg')
-    # Get the file
+    if changed:
+        new_image.convert("RGB").save(out_bytes, format='jpeg')
     return response.raw(out_bytes.getvalue())
 
 
