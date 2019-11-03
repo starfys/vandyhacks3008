@@ -101,7 +101,7 @@ def preprocess(face, transparent_thresh=0.5, epsilon=0.2):
     Arguments:
     face: numpy array
     transparent_thresh: elements in [0, 1] under this value will become transparent
-    epsilon: edge smoothing for mask before applying mask to face
+    epsilon: edge smoothing for mask before applying mask to face. High number is more strict.
     
     
     Applies a canny filter (edge detection)
@@ -115,7 +115,7 @@ def preprocess(face, transparent_thresh=0.5, epsilon=0.2):
     face = np.array(face)
 
     canny = cv2.Canny(face, 10, 30)
-    canny = cv2.blur(canny, (50, 50))
+    canny = cv2.blur(canny, (100, 100))
     canny = canny / canny.max()
     canny[np.where(canny >= transparent_thresh + epsilon)] = 1
     canny[np.where(canny < transparent_thresh - epsilon)] = 0
@@ -147,7 +147,7 @@ async def transform(request):
     feature_id = int(request.headers.get("Target", "0"))
     image = Image.open(BytesIO(decoded_file))
     gray = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    faces = face_cascade.detectMultiScale(gray, 1.1, 5)
     new_image = image.convert("RGBA")
     changed = False
     for (x, y, w, h) in faces:
@@ -167,7 +167,11 @@ async def transform(request):
                     
                 # right now `epsilon` is empirically found
                 # Could make this a slider for user if they want
-                face, trans_idx = preprocess(face, epsilon=0.3)
+                face, trans_idx = preprocess(
+                    face, 
+                    transparent_thresh=0.6,
+                    epsilon=0.5,
+                )
                 
                 # forward pass, convert to transparency
                 modded_face = solver\
