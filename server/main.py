@@ -115,7 +115,7 @@ def preprocess(face, transparent_thresh=0.5, epsilon=0.2):
     face = np.array(face)
 
     canny = cv2.Canny(face, 10, 30)
-    canny = cv2.blur(canny, (100, 100))
+    canny = cv2.blur(canny, (50, 50))
     canny = canny / canny.max()
     canny[np.where(canny >= transparent_thresh + epsilon)] = 1
     canny[np.where(canny < transparent_thresh - epsilon)] = 0
@@ -145,6 +145,7 @@ async def transform(request):
     # Get files from input
     decoded_file = b64decode(request.body.split(b',')[1])
     feature_id = int(request.headers.get("Target", "0"))
+    cur_features = list(map(int, request.headers.get("Current", "10011")));
     image = Image.open(BytesIO(decoded_file))
     gray = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.1, 5)
@@ -169,13 +170,13 @@ async def transform(request):
                 # Could make this a slider for user if they want
                 face, trans_idx = preprocess(
                     face, 
-                    transparent_thresh=0.6,
+                    transparent_thresh=0.0001,
                     epsilon=0.5,
                 )
                 
                 # forward pass, convert to transparency
                 modded_face = solver\
-                    .test(face, feature_id)\
+                    .test(face, feature_id, cur_features)\
                     .convert("RGBA")
                     
                 # apply transparency while numpy array for vectorized assignment
