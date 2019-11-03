@@ -1,3 +1,0 @@
-[submodule "server/neural-style-tf"]
-	path = server/neural-style-tf
-	url = https://github.com/cysmith/neural-style-tf.git
