@@ -524,7 +524,7 @@ class Solver(object):
                 self.update_lr(g_lr, d_lr)
                 print ('Decayed learning rates, g_lr: {}, d_lr: {}.'.format(g_lr, d_lr))
 
-    def test(self, image, feature_id):
+    def test(self, image, feature_id, cur_features = [1,0,0,1,1]):
         """Translate images using StarGAN trained on a single dataset."""
         
         
@@ -536,7 +536,7 @@ class Solver(object):
         
         with torch.no_grad():
             #for i, (x_real, c_org) in enumerate(data_loader):
-            c_org = torch.FloatTensor(np.array([[1,0,0,1,0]]))# TODO: random this
+            c_org = torch.FloatTensor(np.array([cur_features]))# TODO: random this
             from torchvision import transforms as T
             transform = []
             #transform.append(T.CenterCrop(self.celeba_crop_size))

@@ -92,6 +92,52 @@ face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 import numpy as np
 
+# ======================
+# Image preprocessing
+# ======================
+def preprocess(face, transparent_thresh=0.5, epsilon=0.2):
+    '''
+    
+    Arguments:
+    face: numpy array
+    transparent_thresh: elements in [0, 1] under this value will become transparent
+    epsilon: edge smoothing for mask before applying mask to face. High number is more strict.
+    
+    
+    Applies a canny filter (edge detection)
+    Then blurs for a (very) rough face seg
+    Normalize to max 1
+    Threshold with some smoothing epsilon
+    Product with original image.
+    
+    Track which indices should be transparent for later
+    '''
+    face = np.array(face)
+
+    canny = cv2.Canny(face, 10, 30)
+    canny = cv2.blur(canny, (50, 50))
+    canny = canny / canny.max()
+    canny[np.where(canny >= transparent_thresh + epsilon)] = 1
+    canny[np.where(canny < transparent_thresh - epsilon)] = 0
+    
+    transparent_indices = np.where(canny <= transparent_thresh)
+
+    for c in range(face.shape[-1]):
+        face[:, :, c] = face[:, :, c] * canny
+    
+    # Stays RGB, will be made RGBA later.
+    face = Image.fromarray(face, mode='RGB')
+
+    return face, transparent_indices
+def trans_paste(bg_img,fg_img,box=(0,0)):
+    '''
+    Paste, but trans
+    '''
+    fg_img_trans = Image.new("RGBA",bg_img.size)
+    fg_img_trans.paste(fg_img,box,mask=fg_img)
+    new_img = Image.alpha_composite(bg_img,fg_img_trans)
+    return new_img
+    
 
 mask = cv2.imread('mask.png')
 @app.route('/transform', methods=["POST"])
@@ -99,9 +145,10 @@ async def transform(request):
     # Get files from input
     decoded_file = b64decode(request.body.split(b',')[1])
     feature_id = int(request.headers.get("Target", "0"))
+    cur_features = list(map(int, request.headers.get("Current", "10011")));
     image = Image.open(BytesIO(decoded_file))
     gray = cv2.cvtColor(np.array(image), cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    faces = face_cascade.detectMultiScale(gray, 1.1, 5)
     new_image = image.convert("RGBA")
     changed = False
     for (x, y, w, h) in faces:
@@ -115,14 +162,33 @@ async def transform(request):
             x2 = min(image.width, x+w+right)
             y2 = min(image.height, y+h+bottom)
             try:
-                face = image.crop((x1,y1,x2,y2)).resize((256,256), Image.LANCZOS)
-                #face = np.array(face)
-                #face = cv2.blur(face,(5,5))
-                #face = Image.fromarray(face)
-                #new_image = face
-                modded_face = solver.test(face, feature_id).resize((x2-x1,y2-y1), Image.LANCZOS).convert("RGBA")
-                #smask = mask.resize((x2-x1,y2-y1))
-                new_image.paste(modded_face, (x1, y1))
+                face = image\
+                    .crop((x1,y1,x2,y2))\
+                    .resize((256,256), Image.LANCZOS)
+                    
+                # right now `epsilon` is empirically found
+                # Could make this a slider for user if they want
+                face, trans_idx = preprocess(
+                    face, 
+                    transparent_thresh=0.0001,
+                    epsilon=0.5,
+                )
+                
+                # forward pass, convert to transparency
+                modded_face = solver\
+                    .test(face, feature_id, cur_features)\
+                    .convert("RGBA")
+                    
+                # apply transparency while numpy array for vectorized assignment
+                # Then convert back
+                modded_face = np.array(modded_face)
+                modded_face[trans_idx] = (255, 255, 255, 0)
+                modded_face = Image.fromarray(modded_face, mode='RGBA')\
+                    .resize((x2-x1,y2-y1), Image.LANCZOS)    
+                    
+                # using `trans_paste()` we now assign to `new_image`
+                new_image = trans_paste(new_image, modded_face, (x1, y1))
+                
                 changed = True
             except KeyboardInterrupt:
                 sys.exit()

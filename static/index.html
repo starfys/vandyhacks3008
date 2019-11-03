@@ -11,17 +11,29 @@
   <link rel="manifest" href="/site.webmanifest">
   <meta name="msapplication-TileColor" content="#da532c">
   <meta name="theme-color" content="#ffffff">
-
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <style>
+  .btn_red.active {
+    background-color: red;
+  }
+  </style>
 </head>
 
 <body>
+	<h1 align="center">Diversify</h1>
     <canvas id="render" style="border:1px solid #000000;"></canvas>
+	<h3>Target Features</h3>
 	<div id="features"></div>
+	<h3>Initial Features</h3>
+	<div id="cur_features"></div>
 	<br><br><br><br><br><br><br><br><br><br>
 	<br><br><br><br><br><br><br><br><br><br>
 	<br><br><br><br><br><br><br><br><br><br>
 	<br><br><br><br><br><br><br><br><br><br>
     <video id="video" autoplay></video>
-	<script type="text/javascript" src="main.js"></script>
+	<script src="js/jquery-3.3.1.slim.min.js"></script>
+	<script src="js/popper.min.js"></script>
+	<script src="js/bootstrap.min.js"></script>
+	<script type="text/javascript" src="/main.js"></script>
 </body>
 </html>
