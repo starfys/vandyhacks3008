@@ -18,9 +18,7 @@ app.static("/", "../static")
 
 @app.route('/transform', methods=["POST"])
 async def test(request):
-    logger.info("received trans request")
     # Get files from input
-    logger.info(request.files)
     decoded_file = b64decode(request.body.split(b',')[1])
     image = Image.open(BytesIO(decoded_file))
     inverted = ImageOps.invert(image)

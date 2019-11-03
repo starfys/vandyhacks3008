@@ -1,6 +1,9 @@
+let
+  pkgs-unstable = import <nixpkgs-unstable> {};
+in
 { pkgs ? import <nixpkgs> {} }:
   pkgs.mkShell {
     buildInputs = [
-      (pkgs.python3.withPackages (ps: with ps; [numpy pillow sanic scipy tensorflow]))
+      (pkgs-unstable.python3.withPackages (ps: with ps; [numpy opencv4 pillow sanic scipy]))
     ];
 }
